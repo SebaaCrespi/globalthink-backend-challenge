@@ -143,6 +143,40 @@ Se tomó la decisión proactiva de fijar **LF como único estándar de finales d
 
 > **Conclusión del sprint:** los problemas de toolchain (Prettier/ESLint y el build) eran de configuración del entorno, no de lógica de negocio, y ninguno habría sido detectado sin ejecución local —lo que valida el principio central del pipeline: la IA genera, pero el humano supervisa, ejecuta y verifica. La estandarización de finales de línea, en cambio, fue una decisión de diseño anticipatoria pensada para un equipo cross-platform, no una reacción a un problema. Ambos tipos de intervención (corrección reactiva y diseño proactivo) reflejan el criterio humano que el pipeline asistido por IA requiere para producir un resultado profesional.
 
+### Sprint 2 — Módulo Users (desarrollo híbrido por limitación de contexto)
+
+Este sprint introdujo una dinámica distinta al pipeline habitual. Por una limitación de contexto (ventana de tokens agotada durante la sesión de planificación), el desarrollo se dividió en dos fases:
+
+**Fase 1 — Avance manual sin asistencia IA:**
+Ante la imposibilidad temporal de continuar con el asistente, el desarrollador avanzó de forma autónoma cubriendo tareas de múltiples sprints:
+
+*Trabajo correspondiente al Sprint 2 (módulo users):*
+- Schemas de Mongoose: `User` con `Profile` embebido (`{ _id: false }`), enum `UserRole`, password con `select: false`, email indexado y único, timestamps automáticos.
+- DTOs de entrada: `CreateUserDto` con `@ValidateNested()` para el perfil anidado, `UpdateUserDto` vía `PartialType`, `UserQueryDto` con paginación y búsqueda por texto libre.
+- Stubs compilables de `UsersService`, `UsersController` y `UsersModule` (con `MongooseModule.forFeature` y export del service anticipando el Sprint 3).
+
+*Trabajo correspondiente al Sprint 3 (módulo auth) — adelantado:*
+- Esqueleto de `AuthModule`, `AuthController` y `AuthService` como stubs vacíos.
+- Decorador `@Public()` para la estrategia de autenticación default-deny.
+
+*Trabajo correspondiente al Sprint 4 (infraestructura Docker) — adelantado:*
+- `Dockerfile` multi-stage optimizado: stage `builder` con dependencias completas de TypeScript, stage `runner` liviano basado en `node:24-alpine` ejecutando solo `/dist` y dependencias productivas con Yarn.
+- Actualización de `.dockerignore` para excluir `node_modules`, `dist`, `.env` y archivos de desarrollo.
+
+Durante esta fase surgieron dos problemas técnicos resueltos de forma independiente:
+
+- **`TS2564` — Strict property initialization:** Los campos requeridos en DTOs y schemas lanzaban error de inicialización estricta. Solución: operador de aserción definitiva `!` (`firstName!: string`), patrón consistente con la forma en que NestJS y Mongoose inyectan los datos dinámicamente en runtime.
+- **Validación de Joi en container Docker aislado:** Al probar el Dockerfile de forma individual, la app crasheaba por dos causas: variable de entorno nombrada `MONGO_URI` en lugar de `MONGODB_URI` (el schema Joi del Sprint 1 es estricto con los nombres), y ausencia del `.env` dentro del container (correctamente ignorado por `.dockerignore`). Solución: inyección con `--env-file` y mapeo de `localhost` a `host.docker.internal` para alcanzar la base de datos del host desde el container Alpine.
+
+Todo compilando en verde (`yarn build`) con TypeScript estricto y levantando correctamente en desarrollo (`yarn start:dev`).
+
+**Fase 2 — Completado asistido por IA:**
+Al recuperar el contexto, se completó la implementación: `UsersService` con toda la lógica de negocio (hashing con bcrypt, paginación con `Promise.all`, filtro `$or` con regex, manejo de duplicados Mongo 11000), `UsersController` con los 5 endpoints REST documentados con Swagger, `UserResponseDto` sin campo password, y 14 unit tests cubriendo todas las ramas del service.
+
+Durante el code review se identificó una mutación directa del DTO en el método `update` (`dto.password = await bcrypt.hash(...)`) que violaba inmutabilidad. Se corrigió trabajando sobre una copia del objeto (`const updateData = { ...dto }`).
+
+> **Conclusión:** La interrupción del pipeline IA no bloqueó el desarrollo. El desarrollador tomó decisiones técnicas correctas de forma autónoma (aserción definitiva `!`, stubs compilables, Dockerfile funcional) y las documentó para reincorporarlas al contexto. Esto refleja que el pipeline asistido por IA potencia la velocidad pero no crea dependencia: el criterio técnico reside en el desarrollador.
+
 ---
 
 ## 🚀 Instalación y Ejecución
@@ -243,7 +277,7 @@ test/
 
 - [x] **Sprint 0** — Scaffolding, configuración base, dependencias
 - [x] **Sprint 1** — Config tipada, filtros globales, validación, Swagger bootstrap
-- [ ] **Sprint 2** — Módulo `users` (schemas, DTOs, service, controller, tests)
+- [x] **Sprint 2** — Módulo `users` (schemas, DTOs, service, controller, tests)
 - [ ] **Sprint 3** — Módulo `auth` (JWT strategy, guards, register/login, tests)
 - [ ] **Sprint 4** — Dockerfile multi-stage + Docker Compose
 - [ ] **Sprint 5** — README final, ajustes de cobertura, revisión integral
