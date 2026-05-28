@@ -2,7 +2,7 @@
 
 API REST para gestión de usuarios con perfiles y autenticación JWT, construida con **NestJS** y **MongoDB**.
 
-> **Estado del proyecto:** 🚧 En desarrollo activo. Este README se actualizará progresivamente con cada sprint hasta la entrega final.
+> **Estado del proyecto:** 🚧 En desarrollo activo. Este README se actualiza progresivamente con cada sprint hasta la entrega final.
 
 ---
 
@@ -72,7 +72,7 @@ Esta decisión es **consciente**: introducir el patrón cuando no se justifica v
 
 ### 4. Validación de entorno tipada al boot
 
-Las variables de entorno se validan al arrancar la aplicación mediante `@nestjs/config` con un schema explícito. Si falta alguna o tiene tipo incorrecto, **la aplicación falla rápido** (fail-fast) en lugar de romper en runtime de forma impredecible.
+Las variables de entorno se validan al arrancar la aplicación mediante `@nestjs/config` con un schema Joi explícito. Si falta alguna o tiene tipo incorrecto, **la aplicación falla rápido** (fail-fast) en lugar de romper en runtime de forma impredecible.
 
 ### 5. Manejo global de errores
 
@@ -87,7 +87,7 @@ Un `HttpExceptionFilter` global captura todas las excepciones y devuelve un form
 }
 ```
 
-Esto previene la fuga de detalles internos (errores crudos de Mongo, stack traces) hacia el cliente.
+Esto previene la fuga de detalles internos (errores crudos de Mongo, stack traces) hacia el cliente. Los errores no controlados se reportan como 500 genérico mientras el detalle crudo queda en el log del servidor.
 
 ### 6. Default-deny en autenticación
 
@@ -97,16 +97,51 @@ Todos los endpoints están protegidos por defecto mediante un `JwtAuthGuard` glo
 
 ## 🤖 Pipeline de Desarrollo Asistido por IA
 
-Este proyecto fue desarrollado mediante un pipeline estructurado de co-trabajo con IA, optimizando el tiempo de entrega sin sacrificar calidad:
+Este proyecto fue desarrollado mediante un pipeline estructurado de co-trabajo con IA, optimizando el tiempo de entrega sin sacrificar calidad. El rol humano fue de **arquitecto y supervisor**: la IA aceleró la generación de código, pero cada output pasó por ejecución local y code review antes de integrarse.
 
 | Fase | Herramienta | Rol |
 |------|-------------|-----|
 | Planificación y revisión arquitectónica | Claude (chat) | Diseño conceptual, análisis crítico, code review |
 | Generación de boilerplate | Claude Code (CLI local) | DTOs, schemas, stubs de tests, exception filters |
-| Implementación de lógica de negocio | Desarrollador (manual) | Decisiones de dominio, validación de outputs |
+| Implementación y verificación | Desarrollador (manual) | Ejecución local, validación de outputs, debugging |
 | Documentación | Claude (chat) | Estructura del README, justificación técnica |
 
-La sección final del README ampliará esta tabla con métricas concretas del proceso (sprints, tareas automatizadas, intervenciones manuales).
+La metodología por sprints divide el trabajo en módulos acotados. Cada sprint sigue el ciclo: **planificación → prompt modular → generación → ejecución local → code review → commit**.
+
+---
+
+## 📓 Bitácora de Desarrollo
+
+Esta sección documenta de forma transparente los problemas reales encontrados durante el desarrollo y cómo se resolvieron. Refleja que el pipeline asistido por IA incluye supervisión humana activa: varios problemas de toolchain solo se detectaron al ejecutar localmente, validando la importancia del rol del desarrollador en el loop.
+
+### Sprint 0 — Scaffolding y configuración base
+
+- Inicialización con Nest CLI usando Yarn como gestor de paquetes (eliminación de `package-lock.json`).
+- Configuración de TypeScript en modo estricto (`strict`, `noUnusedLocals`, `noUnusedParameters`, etc.).
+- Definición de `.env.example`, `.dockerignore`, `.nvmrc` (Node 24 LTS) y `.gitattributes` (finales de línea LF normalizados para evitar conflictos cross-platform entre Windows y entornos Unix).
+- Limpieza de los archivos de ejemplo del scaffold (`app.controller.ts`, `app.service.ts`).
+
+### Sprint 1 — Capa transversal (config, validación, errores, Swagger)
+
+Se construyó la infraestructura compartida del proyecto: módulo de configuración tipada con validación Joi, filtro global de excepciones, pipe de validación global, y bootstrap de Swagger. Durante este sprint se resolvieron dos problemas de toolchain y se tomó una decisión de diseño cross-platform que vale la pena documentar:
+
+**1. Conflicto entre Prettier y ESLint.**
+ESLint reportaba cientos de errores de formato (`prettier/prettier`) pese a que Prettier consideraba los archivos correctamente formateados. La causa: `eslint-plugin-prettier` no lee el archivo `.prettierrc` por defecto, usando su propia configuración interna. **Solución:** configurar la regla como `['error', {}, { usePrettierrc: true }]` para forzar que respete el `.prettierrc` del proyecto. Es un gotcha común del stack NestJS con ESLint flat config.
+
+**2. Build que no emitía el entry file.**
+`nest build` reportaba éxito ("Done in Xs") pero `dist/main.js` no se generaba, provocando `MODULE_NOT_FOUND` al arrancar. Se identificaron **dos causas simultáneas**:
+
+- Faltaba `experimentalDecorators: true` en `tsconfig.json`, necesario para que TypeScript procese correctamente los decoradores de NestJS y Mongoose.
+- La opción `rootDir: "./src"` (agregada inicialmente para silenciar un warning de deprecación de TypeScript 5.x) **rompe el pipeline de `nest build`**. En proyectos NestJS, el directorio raíz de fuentes lo gestiona internamente `nest-cli.json` vía `sourceRoot`; forzar `rootDir` en `tsconfig.json` es contraproducente.
+
+**Solución:** restaurar `experimentalDecorators` y omitir `rootDir`, usando en su lugar `"include": ["src/**/*"]` para delimitar el alcance de compilación. El warning informativo del Language Server sobre `rootDir` se acepta como ruido benigno, ya que no afecta el build ni la ejecución.
+
+**3. Estandarización de finales de línea (decisión de diseño cross-platform).**
+Se tomó la decisión proactiva de fijar **LF como único estándar de finales de línea** para todo el repositorio, anticipando un escenario de equipo heterogéneo: el desarrollo local se realiza en **Windows** (que usa CRLF nativamente), la empresa trabaja sobre **macOS** (que usa LF), y los entornos de ejecución (servidores y contenedores Docker) corren sobre **Linux** (LF). Sin una política explícita, cada sistema operativo introduciría su propio carácter de fin de línea, generando diffs ruidosos, conflictos de merge artificiales y warnings inconsistentes según la máquina.
+
+**Decisión:** un archivo `.gitattributes` con `* text=auto eol=lf` normaliza todos los archivos de texto a LF en el repositorio, con la excepción explícita de los scripts batch de Windows (`*.bat`, `*.cmd`) que requieren CRLF para funcionar, y los binarios marcados para que Git no los altere. Esto garantiza que cualquier colaborador —sin importar su sistema operativo— vea exactamente el mismo contenido, eliminando la variable del SO de la ecuación. La configuración vive en el repositorio y no depende de los ajustes de Git locales de cada persona.
+
+> **Conclusión del sprint:** los problemas de toolchain (Prettier/ESLint y el build) eran de configuración del entorno, no de lógica de negocio, y ninguno habría sido detectado sin ejecución local —lo que valida el principio central del pipeline: la IA genera, pero el humano supervisa, ejecuta y verifica. La estandarización de finales de línea, en cambio, fue una decisión de diseño anticipatoria pensada para un equipo cross-platform, no una reacción a un problema. Ambos tipos de intervención (corrección reactiva y diseño proactivo) reflejan el criterio humano que el pipeline asistido por IA requiere para producir un resultado profesional.
 
 ---
 
@@ -132,7 +167,7 @@ yarn install
 
 # 3. Configurar variables de entorno
 cp .env.example .env
-# Editar .env con valores reales (en especial JWT_SECRET)
+# Editar .env con valores reales (en especial JWT_SECRET, mínimo 16 caracteres)
 
 # 4. Levantar MongoDB localmente (o usar uno existente)
 # El docker-compose.yml estará disponible al cierre del Sprint 4
@@ -207,7 +242,7 @@ test/
 ## 📋 Roadmap de Desarrollo
 
 - [x] **Sprint 0** — Scaffolding, configuración base, dependencias
-- [ ] **Sprint 1** — Config tipada, filtros globales, validación, Swagger bootstrap
+- [x] **Sprint 1** — Config tipada, filtros globales, validación, Swagger bootstrap
 - [ ] **Sprint 2** — Módulo `users` (schemas, DTOs, service, controller, tests)
 - [ ] **Sprint 3** — Módulo `auth` (JWT strategy, guards, register/login, tests)
 - [ ] **Sprint 4** — Dockerfile multi-stage + Docker Compose
