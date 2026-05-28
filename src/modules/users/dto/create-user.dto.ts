@@ -12,7 +12,7 @@ import {
 import { UserRole } from '../schemas/user.schema';
 
 export class CreateProfileDto {
-  @ApiProperty({ example: 'Ernesto', description: 'Primer nombre del usuario' })
+  @ApiProperty({ example: 'Sebastian', description: 'Primer nombre del usuario' })
   @IsString()
   @IsNotEmpty()
   firstName!: string;
