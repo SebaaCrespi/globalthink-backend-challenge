@@ -3,9 +3,11 @@ dist
 coverage
 .git
 .gitignore
+.claude
 .env
 .env.*
 !.env.example
+!.env.test.local
 *.log
 .vscode
 .idea
