@@ -1,0 +1,31 @@
+name: globalthink-challenge-stack
+services:
+  app:
+    build:
+      context: .
+    container_name: globalthink-app
+    ports:
+      - "3000:3000"
+    depends_on:
+      mongo:
+        condition: service_started
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/globalthink
+      JWT_SECRET: changeme-use-a-real-secret-in-production
+      JWT_EXPIRES_IN: 1d
+      BCRYPT_SALT_ROUNDS: 10
+      PORT: 3000
+
+  mongo:
+    image: mongo:8
+    container_name: globalthink-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
