@@ -80,6 +80,10 @@ export class UsersService {
     };
   }
 
+  async findByEmailWithPassword(email: string): Promise<UserDocument | null> {
+    return this.userModel.findOne({ email }).select('+password').exec();
+  }
+
   async findOne(id: string): Promise<UserResponseDto> {
     if (!isValidObjectId(id)) {
       throw new BadRequestException('Invalid user ID');

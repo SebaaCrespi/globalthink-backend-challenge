@@ -177,6 +177,52 @@ Durante el code review se identificó una mutación directa del DTO en el métod
 
 > **Conclusión:** La interrupción del pipeline IA no bloqueó el desarrollo. El desarrollador tomó decisiones técnicas correctas de forma autónoma (aserción definitiva `!`, stubs compilables, Dockerfile funcional) y las documentó para reincorporarlas al contexto. Esto refleja que el pipeline asistido por IA potencia la velocidad pero no crea dependencia: el criterio técnico reside en el desarrollador.
 
+### Sprint 3 — Módulo Auth + Testing integral
+
+Implementación completa del módulo de autenticación siguiendo la estrategia default-deny diseñada en el Sprint 1, más hardening de cobertura y suite e2e.
+
+**Archivos implementados:**
+- `LoginDto` y `AuthResponseDto` — contratos de entrada/salida para el flujo de autenticación.
+- `JwtStrategy` — extracción de token Bearer, validación de payload tipado, mapeo a `{ userId, email, role }`.
+- `JwtAuthGuard` — guard global registrado con `APP_GUARD`; lee el metadata `IS_PUBLIC_KEY` vía `Reflector` para permitir rutas públicas.
+- `AuthService` — orquesta registro (delega creación a `UsersService` + firma JWT), login (valida credenciales con bcrypt + firma JWT) y consulta de perfil. Mensaje genérico `"Invalid credentials"` para login fallido (previene enumeración de usuarios).
+- `AuthController` — tres endpoints: `POST /auth/register` (público), `POST /auth/login` (público), `GET /auth/profile` (protegido con `@ApiBearerAuth()`).
+- `AuthModule` — `JwtModule.registerAsync` con secret y expiración desde config tipada.
+- `UsersService.findByEmailWithPassword` — método agregado para recuperar el documento con el campo `password` (excluido por defecto vía `select: false` en el schema).
+
+**Problemas resueltos:**
+- **Tipo `expiresIn` en `JwtModule`:** jsonwebtoken tipifica `expiresIn` como `ms.StringValue | number`, incompatible con `string` plano. Se resolvió con un cast explícito a `JwtModuleOptions['signOptions']`, documentado en código con comentario.
+- **Mock de `bcrypt.compare` en tests:** `jest.spyOn` no puede redefinir la propiedad porque no es configurable en el módulo compilado. Se resolvió con `jest.mock('bcrypt')` parcial usando `requireActual` + override puntual de `compare`.
+- **Swagger sin `addBearerAuth()`:** Los endpoints protegidos no funcionaban en `/docs` porque el `DocumentBuilder` no incluía `.addBearerAuth()`. Detectado en code review y corregido en `main.ts`.
+- **`UsersModule` importado dos veces en `AppModule`:** Estaba tanto en el array principal de `imports` como dentro de `MongooseModule.forRootAsync.imports` (donde no tenía razón de estar). Se removió del `forRootAsync`.
+
+**Testing — hardening de cobertura:**
+Se configuró `collectCoverageFrom` en Jest para excluir archivos declarativos sin lógica testeable (modules, DTOs, schemas, decoradores, `main.ts`, config), reflejando la cobertura real sobre código con comportamiento. Se agregaron tests unitarios para `JwtAuthGuard` (ruta pública vs protegida) y `JwtStrategy` (mapeo de payload).
+
+| Archivo | Stmts | Branch | Funcs | Lines |
+|---------|-------|--------|-------|-------|
+| `auth.service.ts` | 100% | 100% | 100% | 100% |
+| `users.service.ts` | 96.7% | 88% | 88.8% | 96.6% |
+| `jwt-auth.guard.ts` | 100% | 100% | 100% | 100% |
+| `jwt.strategy.ts` | 100% | 100% | 100% | 100% |
+| `http-exception.filter.ts` | 90.9% | 69.2% | 100% | 90% |
+| **Global (lógica testeable)** | **74.4%** | **85.2%** | **63.3%** | **74.6%** |
+
+Los controllers quedan en 0% de forma intencional: son delegadores puros sin lógica propia, y su cobertura corresponde a tests de integración/e2e.
+
+**Tests e2e (integración completa):**
+Se implementó una suite e2e con `supertest` y `mongodb-memory-server` que valida el flujo real de la aplicación contra una instancia de MongoDB en memoria, sin mocks. Cubre 17 escenarios en tres bloques:
+
+- **Auth (8 tests):** registro exitoso y duplicado, validación de campos, login con credenciales válidas/inválidas, acceso a perfil protegido con y sin token.
+- **Users CRUD (6 tests):** listado paginado, detalle por ID (válido, inexistente, inválido), actualización parcial y eliminación con verificación posterior.
+- **Paginación y filtros (3 tests):** paginación con límite, búsqueda por texto.
+
+Setup: variables de entorno inyectadas vía `process.env` antes de compilar el módulo de testing, evitando overrides invasivos de `ConfigService`. Los pipes y filtros globales se aplican idénticamente a `main.ts`.
+
+**Total: 50 tests (33 unitarios + 17 e2e), 6 suites, todos en verde.**
+
+> **Conclusión:** El Sprint 3 cierra los dos módulos funcionales del challenge (users + auth) con cobertura de testing en ambos niveles — unitario sobre la lógica de negocio y e2e sobre el flujo real. La detección de bugs como el `addBearerAuth()` faltante y la doble importación de `UsersModule` ocurrió en la fase de code review humano, no en la generación automática, reafirmando que el pipeline IA requiere supervisión activa para alcanzar calidad de producción.
+
 ---
 
 ## 🚀 Instalación y Ejecución
@@ -233,7 +279,7 @@ yarn test:watch
 # Pruebas unitarias con cobertura
 yarn test:cov
 
-# Pruebas e2e
+# Pruebas e2e  (requiere descarga automática de mongodb-memory-server en primera ejecución)
 yarn test:e2e
 ```
 
@@ -278,7 +324,7 @@ test/
 - [x] **Sprint 0** — Scaffolding, configuración base, dependencias
 - [x] **Sprint 1** — Config tipada, filtros globales, validación, Swagger bootstrap
 - [x] **Sprint 2** — Módulo `users` (schemas, DTOs, service, controller, tests)
-- [ ] **Sprint 3** — Módulo `auth` (JWT strategy, guards, register/login, tests)
+- [x] **Sprint 3** — Módulo `auth` (JWT strategy, guards, register/login, tests)
 - [ ] **Sprint 4** — Dockerfile multi-stage + Docker Compose
 - [ ] **Sprint 5** — README final, ajustes de cobertura, revisión integral
 
