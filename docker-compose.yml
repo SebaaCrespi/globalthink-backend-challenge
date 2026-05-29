@@ -1,3 +1,4 @@
+name: globalthink-challenge-stack
 services:
   app:
     build:
