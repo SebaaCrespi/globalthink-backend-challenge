@@ -2,7 +2,7 @@
 
 API REST para gestión de usuarios con perfiles y autenticación JWT, construida con **NestJS** y **MongoDB**.
 
-> **Estado del proyecto:** 🚧 En desarrollo activo. Este README se actualiza progresivamente con cada sprint hasta la entrega final.
+> **Estado del proyecto:** ✅ Entrega completa. API funcional con autenticación JWT, CRUD de usuarios, suite de testing integral y stack Docker Compose listo para ejecutar.
 
 ---
 
@@ -223,47 +223,90 @@ Setup: variables de entorno inyectadas vía `process.env` antes de compilar el m
 
 > **Conclusión:** El Sprint 3 cierra los dos módulos funcionales del challenge (users + auth) con cobertura de testing en ambos niveles — unitario sobre la lógica de negocio y e2e sobre el flujo real. La detección de bugs como el `addBearerAuth()` faltante y la doble importación de `UsersModule` ocurrió en la fase de code review humano, no en la generación automática, reafirmando que el pipeline IA requiere supervisión activa para alcanzar calidad de producción.
 
+### Sprint 4 — Infraestructura Docker Compose
+
+Cierre de la capa de infraestructura: orquestación de la app + base de datos en un único comando reproducible.
+
+**Archivos:**
+- `docker-compose.yml` — dos servicios (`app` y `mongo`), volumen nombrado `mongo-data` para persistencia de datos, `restart: unless-stopped` en ambos, variables de entorno inline con valores funcionales por defecto.
+
+**Decisiones de diseño:**
+
+- **Variables inline en lugar de `env_file`.** El compose define las variables directamente para que `docker compose up --build` funcione sin ningún paso previo de configuración. El `JWT_SECRET` tiene un valor explícitamente nombrado (`changeme-use-a-real-secret-in-production`) que invita a sobrescribirlo en escenarios reales. El `.env.example` se mantiene como documentación de las variables esperadas por el `ConfigModule` con validación Joi.
+- **Imagen `mongo:8`.** Versión mayor reciente (LTS al momento de la entrega), compatible con el driver de Mongoose usado por el proyecto. La aplicación se conecta vía `mongodb://mongo:27017/globalthink` aprovechando la resolución DNS interna de la red por defecto que Compose crea.
+- **`depends_on` con condición `service_started`.** Suficiente para este escenario: la app reintenta la conexión a Mongo automáticamente si el contenedor de base aún no terminó su arranque. Usar `service_healthy` requeriría definir un healthcheck explícito en Mongo, lo cual es overkill para un proyecto de esta escala (YAGNI).
+- **Volumen nombrado `mongo-data`.** Persiste los datos entre `docker compose down` y `up` sucesivos. Para wipe completo de datos: `docker compose down -v`.
+
+**Verificación:**
+- Build multi-stage exitoso, ambos contenedores `Up`, app conectada a Mongo, rutas mapeadas correctamente.
+- `http://localhost:3000/docs` responde HTTP 200 con la documentación Swagger completa.
+- Flujo end-to-end funcional dentro del stack: registro → login → endpoints protegidos.
+
+> **Conclusión del sprint:** Con un solo comando (`docker compose up --build`) cualquier evaluador puede levantar el proyecto completo en segundos, sin instalar Node ni MongoDB localmente. Esto cierra el círculo de portabilidad y reproducibilidad que busca el challenge.
+
 ---
 
 ## 🚀 Instalación y Ejecución
 
-> ⚠️ Esta sección se completará al final del desarrollo con instrucciones definitivas. Lo que sigue es una guía preliminar.
-
 ### Prerrequisitos
 
-- Node.js 24+ (ver `.nvmrc`)
-- Yarn
-- Docker y Docker Compose (opcional, para ejecución contenedorizada)
+- **Docker y Docker Compose** (recomendado, único requisito necesario)
+- Alternativamente, para ejecución sin Docker: Node.js 24+ (ver `.nvmrc`), Yarn, y una instancia de MongoDB accesible.
 
-### Ejecución local con Yarn
+### Opción 1 — Docker Compose (recomendada)
+
+Un solo comando levanta la app y la base de datos:
 
 ```bash
-# 1. Clonar el repositorio
 git clone <repo-url>
 cd globalthink-backend-challenge
+docker compose up --build
+```
 
-# 2. Instalar dependencias
+- API disponible en `http://localhost:3000`
+- Documentación Swagger en `http://localhost:3000/docs`
+- MongoDB expuesto en `localhost:27017` (para inspección con MongoDB Compass u otra herramienta)
+
+Para detener el stack:
+```bash
+docker compose down       # Mantiene los datos
+docker compose down -v    # Elimina también el volumen de Mongo (wipe total)
+```
+
+### Opción 2 — Ejecución local con Yarn
+
+```bash
+# 1. Clonar e instalar dependencias
+git clone <repo-url>
+cd globalthink-backend-challenge
 yarn install
 
-# 3. Configurar variables de entorno
+# 2. Configurar variables de entorno
 cp .env.example .env
-# Editar .env con valores reales (en especial JWT_SECRET, mínimo 16 caracteres)
+# Editar .env: el JWT_SECRET debe tener mínimo 16 caracteres
 
-# 4. Levantar MongoDB localmente (o usar uno existente)
-# El docker-compose.yml estará disponible al cierre del Sprint 4
+# 3. Levantar MongoDB localmente (puede ser via Docker individual)
+docker run -d --name local-mongo -p 27017:27017 mongo:8
 
-# 5. Iniciar la aplicación en modo desarrollo
+# 4. Iniciar la aplicación
 yarn start:dev
 ```
 
-La API quedará disponible en `http://localhost:3000` y la documentación Swagger en `http://localhost:3000/docs`.
+### Flujo de prueba rápido
 
-### Ejecución con Docker Compose
+Una vez levantada la app, en Swagger (`/docs`):
 
-```bash
-# (Disponible al cierre del Sprint 4)
-docker compose up --build
-```
+1. `POST /auth/register` con un body como:
+   ```json
+   {
+     "email": "test@example.com",
+     "password": "securePass123",
+     "profile": { "firstName": "Test", "lastName": "User" }
+   }
+   ```
+2. Copiar el `accessToken` de la respuesta.
+3. Click en el botón **Authorize** (candado, arriba a la derecha) y pegar el token.
+4. Probar `GET /users`, `GET /auth/profile`, `PATCH /users/:id`, etc.
 
 ---
 
@@ -290,31 +333,34 @@ yarn test:e2e
 ## 📂 Estructura del Proyecto
 
 ```
-src/
-├── main.ts                          # Bootstrap de la aplicación
-├── app.module.ts                    # Módulo raíz
-├── common/                          # Recursos transversales
-│   ├── decorators/                  # @Public(), etc.
-│   ├── filters/                     # HttpExceptionFilter global
-│   └── dtos/                        # PaginationQueryDto base
-├── config/                          # Configuración tipada y validada
-└── modules/
-    ├── users/
-    │   ├── schemas/                 # User + Profile (embebido)
-    │   ├── dto/                     # Create, Update, Query, Response
-    │   ├── users.controller.ts
-    │   ├── users.service.ts
-    │   └── users.module.ts
-    └── auth/
-        ├── dto/
-        ├── guards/                  # JwtAuthGuard global
-        ├── strategies/              # JwtStrategy (Passport)
-        ├── auth.controller.ts
-        ├── auth.service.ts
-        └── auth.module.ts
-
-test/
-└── app.e2e-spec.ts                  # Flujo end-to-end: register → login → recurso protegido
+.
+├── docker-compose.yml              # Stack App + MongoDB
+├── Dockerfile                      # Build multi-stage (builder + runner alpine)
+├── .env.example                    # Variables de entorno documentadas
+├── package.json
+├── src/
+│   ├── main.ts                     # Bootstrap (pipes, filters, Swagger)
+│   ├── app.module.ts               # Módulo raíz
+│   ├── common/
+│   │   ├── decorators/             # @Public()
+│   │   └── filters/                # HttpExceptionFilter global
+│   ├── config/                     # Configuración tipada con validación Joi
+│   └── modules/
+│       ├── users/
+│       │   ├── schemas/            # User + Profile (embebido)
+│       │   ├── dto/                # Create, Update, Query, Response
+│       │   ├── users.controller.ts
+│       │   ├── users.service.ts 
+│       │   └── users.module.ts
+│       └── auth/
+│           ├── dto/                # Login, AuthResponse
+│           ├── guards/             # JwtAuthGuard global
+│           ├── strategies/         # JwtStrategy (Passport)
+│           ├── auth.controller.ts
+│           ├── auth.service.ts
+│           └── auth.module.ts
+└── test/
+    └── app.e2e-spec.ts             # E2e con mongodb-memory-server (auth + CRUD + paginación)
 ```
 
 ---
@@ -325,8 +371,8 @@ test/
 - [x] **Sprint 1** — Config tipada, filtros globales, validación, Swagger bootstrap
 - [x] **Sprint 2** — Módulo `users` (schemas, DTOs, service, controller, tests)
 - [x] **Sprint 3** — Módulo `auth` (JWT strategy, guards, register/login, tests)
-- [ ] **Sprint 4** — Dockerfile multi-stage + Docker Compose
-- [ ] **Sprint 5** — README final, ajustes de cobertura, revisión integral
+- [x] **Sprint 4** — Dockerfile multi-stage + Docker Compose
+- [x] **Sprint 5** — README final y cierre de documentación
 
 ---
 
